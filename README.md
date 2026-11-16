@@ -102,6 +102,8 @@ make down                # stop and delete the data
 
 Ports 8080 (proxy) and 8081 (Traefik dashboard, localhost only) are the
 defaults. Change them with `PROXY_PORT=9080 DASHBOARD_PORT=9081 make test`.
+On a machine with a public address, add `PROXY_BIND=127.0.0.1` so the demo
+stack is not reachable from outside.
 
 ### Reading a result
 
@@ -145,9 +147,14 @@ Endpoints of the demo service:
 
 ## CI
 
-`.github/workflows/zero-downtime-test.yml` runs each scenario on every push and
-pull request. To run it on your own server, register a self-hosted runner there
-and start the workflow by hand with the runner label `self-hosted`.
+`.github/workflows/zero-downtime-test.yml` runs each scenario on a self-hosted
+runner, on every push to `main` and when started by hand. The runner needs
+Docker with Compose v2, `make`, `jq` and `curl`.
+
+It deliberately does not run on pull requests. On a public repository, a pull
+request from a fork could otherwise run its own code on the runner's machine.
+To use GitHub-hosted runners instead, change `runs-on` to `ubuntu-latest`;
+then running on pull requests is safe to add.
 
 `.github/workflows/deploy-example.yml` is a template for a real pipeline: build
 the image, push it to a registry, SSH to the server, run `rollout.sh`. If the

@@ -4,22 +4,29 @@ name: zero-downtime test
 # fails, so a green run is the proof that deploys are still zero-downtime.
 
 on:
+  # No pull_request trigger on purpose: this runs on a self-hosted runner, and
+  # on a public repository a pull request from a fork could run its own code
+  # on that machine.
   push:
     branches: [main]
-  pull_request:
   workflow_dispatch:
-    inputs:
-      runner:
-        description: Runner label (use "self-hosted" to test on your own server)
-        default: ubuntu-latest
+
+concurrency:
+  group: zero-downtime-test # scenarios share ports and one machine
+  cancel-in-progress: false
+
+env:
+  # Bind to localhost and stay clear of ports the host may already use.
+  PROXY_BIND: 127.0.0.1
+  PROXY_PORT: "18080"
+  DASHBOARD_PORT: "18081"
 
 jobs:
   scenario:
-    runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
+    runs-on: self-hosted
     timeout-minutes: 15
     strategy:
       fail-fast: false
-      # One at a time: scenarios share ports, and a self-hosted runner is one machine.
       max-parallel: 1
       matrix:
         scenario: [good-deploy, bad-deploy, scale, ratelimit, kill-container, naive-deploy]
