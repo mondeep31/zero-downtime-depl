@@ -147,19 +147,26 @@ Endpoints of the demo service:
 
 ## CI
 
-`.github/workflows/zero-downtime-test.yml` runs each scenario on a self-hosted
-runner, on every push to `main` and when started by hand. The runner needs
-Docker with Compose v2, `make`, `jq` and `curl`.
+`.github/workflows/sync-to-server.yml` only puts the code on the test server.
+On every push to `main` (or when started by hand), a self-hosted runner on that
+server copies the repo into `~/zero-downtime-deploy`. `results/` is left alone,
+so results from earlier runs survive a sync. The tests are then run by hand on
+the server:
 
+```bash
+cd ~/zero-downtime-deploy
+cat .deployed-commit      # which commit is there
+make test                 # or make test-<scenario>
+```
+
+The server needs Docker with Compose v2, `make`, `jq`, `curl` and `rsync`.
 Install the runner as a service (`sudo ./svc.sh install <user>`, then
 `sudo ./svc.sh start`) rather than leaving `./run.sh` in a terminal; jobs pushed
-while the runner is offline sit queued and are eventually cancelled. The service
-user must be in the `docker` group.
+while the runner is offline sit queued and are eventually cancelled.
 
-It deliberately does not run on pull requests. On a public repository, a pull
-request from a fork could otherwise run its own code on the runner's machine.
-To use GitHub-hosted runners instead, change `runs-on` to `ubuntu-latest`;
-then running on pull requests is safe to add.
+The workflow deliberately does not run on pull requests. On a public
+repository, a pull request from a fork could otherwise run its own code on the
+runner's machine.
 
 `.github/workflows/deploy-example.yml` is a template for a real pipeline: build
 the image, push it to a registry, SSH to the server, run `rollout.sh`. If the

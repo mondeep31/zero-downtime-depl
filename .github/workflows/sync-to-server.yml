@@ -1,0 +1,36 @@
+name: sync to server
+
+# Copies the latest code onto the test server and does nothing else.
+# Tests are run by hand on the server:
+#
+#   cd ~/zero-downtime-deploy && make test
+#
+# No pull_request trigger on purpose: this runs on a self-hosted runner, and
+# on a public repository a pull request from a fork could run its own code
+# on that machine.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: sync-to-server
+  cancel-in-progress: true # only the newest commit matters
+
+jobs:
+  sync:
+    runs-on: self-hosted
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Copy code to the server's working copy
+        run: |
+          target="$HOME/zero-downtime-deploy"
+          mkdir -p "$target"
+          # --delete removes files that were deleted in the repo.
+          # results/ is excluded so results from manual runs are kept.
+          rsync -a --delete --exclude .git/ --exclude results/ ./ "$target/"
+          echo "${GITHUB_SHA}" > "$target/.deployed-commit"
+          echo "Synced ${GITHUB_SHA::7} to $target"
