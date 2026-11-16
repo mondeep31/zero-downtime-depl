@@ -151,6 +151,11 @@ Endpoints of the demo service:
 runner, on every push to `main` and when started by hand. The runner needs
 Docker with Compose v2, `make`, `jq` and `curl`.
 
+Install the runner as a service (`sudo ./svc.sh install <user>`, then
+`sudo ./svc.sh start`) rather than leaving `./run.sh` in a terminal; jobs pushed
+while the runner is offline sit queued and are eventually cancelled. The service
+user must be in the `docker` group.
+
 It deliberately does not run on pull requests. On a public repository, a pull
 request from a fork could otherwise run its own code on the runner's machine.
 To use GitHub-hosted runners instead, change `runs-on` to `ubuntu-latest`;
