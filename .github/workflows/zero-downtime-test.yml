@@ -1,0 +1,48 @@
+name: zero-downtime test
+
+# Runs every deploy scenario under load. A scenario fails if a single request
+# fails, so a green run is the proof that deploys are still zero-downtime.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: Runner label (use "self-hosted" to test on your own server)
+        default: ubuntu-latest
+
+jobs:
+  scenario:
+    runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      # One at a time: scenarios share ports, and a self-hosted runner is one machine.
+      max-parallel: 1
+      matrix:
+        scenario: [good-deploy, bad-deploy, scale, ratelimit, kill-container, naive-deploy]
+    steps:
+      - uses: actions/checkout@v4
+
+      # k6 is optional: without it the scenarios run k6 from its Docker image.
+      - uses: grafana/setup-k6-action@v1
+
+      - name: Run ${{ matrix.scenario }}
+        run: make test-${{ matrix.scenario }}
+
+      - name: Container logs (on failure)
+        if: failure()
+        run: cd deploy && docker compose logs --tail 200 api worker migrate
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: results-${{ matrix.scenario }}
+          path: results/
+
+      - name: Tear down
+        if: always()
+        run: make down

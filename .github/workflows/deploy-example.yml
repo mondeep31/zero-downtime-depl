@@ -1,0 +1,61 @@
+name: deploy (example)
+
+# TEMPLATE, not wired to anything: it only runs when started by hand.
+# It shows how the rollout script fits into a real pipeline:
+#
+#   build image -> push to registry -> SSH to the server -> rollout.sh
+#
+# Needs these repository secrets:
+#   DEPLOY_HOST      server hostname or IP
+#   DEPLOY_USER      SSH user (must be allowed to run docker)
+#   DEPLOY_SSH_KEY   private key for that user
+#   DEPLOY_HOST_KEY  the server's line from `ssh-keyscan <host>`
+#
+# On the server, a checkout of this repo's deploy/ directory lives in
+# /opt/app/deploy, and the server is logged in to the registry.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy # never two rollouts at the same time
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}
+      TAG: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: app
+          push: true
+          build-args: VERSION=${{ env.TAG }}
+          tags: ${{ env.IMAGE }}:${{ env.TAG }}
+
+      - name: Roll out on the server
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          HOST_KEY: ${{ secrets.DEPLOY_HOST_KEY }}
+          TARGET: ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$HOST_KEY" > ~/.ssh/known_hosts
+          # rollout.sh exits non-zero if the new release never becomes healthy.
+          # In that case the old release is still serving and this job fails.
+          ssh -i ~/.ssh/deploy_key "$TARGET" \
+            "cd /opt/app/deploy && APP_IMAGE='$IMAGE' APP_TAG='$TAG' PULL=1 ./rollout.sh"
