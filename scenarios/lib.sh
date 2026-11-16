@@ -43,7 +43,12 @@ start_load() {
   LOAD_START="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   local args=(run --quiet --summary-export "results/$LOAD_NAME.summary.json"
     -e "DURATION=$duration" -e "EXPECT_VERSIONS=$expect" -e "RATE=${RATE:-100}")
-  log "load: ${RATE:-100} req/s + slow requests for $duration"
+  if [ -n "${STAGES:-}" ]; then
+    args+=(-e "STAGES=$STAGES")
+    log "load: changing rate ($STAGES, as req/s:time) + slow requests for $duration"
+  else
+    log "load: ${RATE:-100} req/s + slow requests for $duration"
+  fi
   if command -v k6 >/dev/null 2>&1; then
     (cd "$ROOT" && k6 "${args[@]}" -e "BASE_URL=$BASE_URL" loadtest/deploy-under-load.js) \
       >"$RESULTS/$LOAD_NAME.k6.txt" 2>&1 &

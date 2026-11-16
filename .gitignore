@@ -1,2 +1,3 @@
 results/
+deploy/.scale.lock/
 .env

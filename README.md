@@ -16,6 +16,7 @@ make test
 | `good-deploy` | Roll v1 to v2 | 0 failed requests, both versions served traffic |
 | `bad-deploy` | Roll out a release that never becomes ready | Rollout aborts, 0 failed requests, broken release served nothing |
 | `scale` | Scale 2 to 4 to 2 replicas | 0 failed requests |
+| `autoscale` | Load goes 80 to 280 to 80 requests/second, an autoscaler follows it | Replicas go 2 to 5 to 2 on their own, 0 failed requests |
 | `ratelimit` | 40 requests against a limit of 20, across 2 replicas | Exactly 20 allowed (state is shared, not per replica) |
 | `kill-container` | One replica crashes instantly | Only requests in flight inside it are lost; it restarts and rejoins |
 | `naive-deploy` | Control: plain `docker compose up -d` with a new tag | **Must lose requests**, which proves the test detects downtime |
@@ -27,6 +28,7 @@ Typical numbers from one run on a laptop:
 | `good-deploy` | 5,087 | 0 |
 | `bad-deploy` | 6,101 | 0 |
 | `scale` | 5,087 | 0 |
+| `autoscale` | 16,575 | 0 |
 | `kill-container` | 4,072 | 3 |
 | `naive-deploy` (control) | 4,607 | 851 |
 
@@ -85,6 +87,40 @@ These four settings depend on each other. If you change one, check the rest.
 | `SHUTDOWN_TIMEOUT` | api env | 25s | Longer than your slowest request |
 | `stop_grace_period` | `docker-compose.yml` | 35s | Longer than `SHUTDOWN_DELAY` + `SHUTDOWN_TIMEOUT` |
 
+## Autoscaling
+
+`deploy/autoscale.sh` is a small control loop. Every few seconds it:
+
+1. Measures one metric, averaged per replica.
+2. Computes `desired = ceil(replicas x metric / TARGET)`, kept between
+   `MIN_REPLICAS` and `MAX_REPLICAS`. This is the formula the Kubernetes
+   Horizontal Pod Autoscaler uses.
+3. Scales **up at once**. Scales **down only after the load has stayed low**
+   for `SCALE_DOWN_WINDOW` seconds, so a short dip does not remove replicas
+   that are needed again a moment later.
+
+| Metric | Source | Use it when |
+|---|---|---|
+| `rps` (default) | Requests/second per replica, from Traefik's Prometheus metrics | Requests cost about the same; it reacts before the app is in trouble |
+| `cpu` | CPU % per replica, from `docker stats` | The work per request varies a lot |
+
+No request is lost, for the same two reasons a rollout is safe: a new replica
+gets no traffic until `/ready` passes, and a removed replica drains first.
+
+The autoscaler and `rollout.sh` share a lock (`deploy/lock.sh`). While a
+rollout runs the autoscaler pauses, and a scale-up after a rollout starts
+replicas of the release that is running, not of the default tag.
+
+The `autoscale` scenario, from one run. The decisions are the autoscaler's
+own; nothing in the test tells it when to scale:
+
+```
+load        80 req/s ......... 280 req/s ................. 80 req/s ...........
+replicas    2                  3 -> 5                       3 -> 2
+                               (about 5s and 15s after      (about 25s and 35s after
+                                the rate started to rise)    it started to fall)
+```
+
 ## Run it
 
 Needs Docker with Compose v2, `make`, `jq` and `curl`. k6 is optional: without
@@ -95,7 +131,8 @@ make up                  # build v1, start the stack on http://127.0.0.1:8080
 curl -i http://127.0.0.1:8080/api/version
 
 make deploy TAG=v2       # roll out a new version with zero downtime
-make test                # run every scenario (about 6 minutes)
+make autoscale           # run the autoscaler in the foreground (Ctrl-C stops it)
+make test                # run every scenario (about 8 minutes)
 make test-good-deploy    # or just one
 make down                # stop and delete the data
 ```
@@ -127,7 +164,7 @@ logged. Raw output is kept in `results/`.
 
 ```
 app/          demo service: http, worker and migrate modes in one binary
-deploy/       docker-compose.yml and rollout.sh
+deploy/       docker-compose.yml, rollout.sh and autoscale.sh
 loadtest/     k6 script
 scenarios/    one script per scenario, plus shared helpers in lib.sh
 .github/      CI that runs every scenario; an example deploy pipeline
@@ -196,10 +233,17 @@ Then point `APP_IMAGE` at your image, adjust the environment in
   retried on another replica. Clients should retry idempotent requests.
 - **One server is one point of failure.** This removes downtime from
   *deploys*, not from hardware failure. That needs a second machine.
-- **No autoscaling.** The `scale` scenario shows that changing the replica
-  count is safe, which is the part an autoscaler relies on. Deciding *when* to
-  scale needs an orchestrator such as Kubernetes, and adding real capacity
-  needs more machines.
+- **Autoscaling here adds replicas, not hardware.** Every replica shares the
+  same machine, so this helps only while the machine has spare CPU and memory.
+  A Go process already uses every core, so more replicas of it add little
+  raw throughput. Adding real capacity needs more machines, and then an
+  orchestrator such as Kubernetes to place replicas on them.
+- **The autoscaler is one process.** If it stops, the replica count stays
+  where it was. Nothing breaks, but nothing scales either. Run it under a
+  supervisor such as systemd.
+- **Scaling does not fix a slow database.** More replicas mean more database
+  connections (replicas x pool size, doubled during a rollout). Keep
+  `MAX_REPLICAS` low enough for that to fit under `max_connections`.
 - **Retries cover connection failures only**, and Traefik will not replay a
   request that already reached a replica. That is deliberate: replaying a
   non-idempotent request could apply it twice.

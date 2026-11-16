@@ -25,6 +25,16 @@ TRAEFIK_API="${TRAEFIK_API:-http://127.0.0.1:${DASHBOARD_PORT:-8081}}"
 
 say() { printf '[rollout] %s\n' "$*"; }
 
+# The autoscaler takes the same lock, so it never changes the replica count
+# in the middle of a rollout.
+# shellcheck source=lock.sh
+. ./lock.sh
+if ! lock_wait 120; then
+  say "ERROR: another rollout or a scaling action still holds $LOCK_DIR"
+  exit 1
+fi
+trap lock_release EXIT
+
 old_ids="$(docker compose ps -q "$SERVICE")"
 if [ -z "$old_ids" ]; then
   say "no running $SERVICE replicas: plain start"

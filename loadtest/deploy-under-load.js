@@ -17,6 +17,16 @@ import { Counter } from 'k6/metrics';
 const BASE_URL = __ENV.BASE_URL || 'http://127.0.0.1:8080';
 const RATE = Number(__ENV.RATE || 100);
 const DURATION = __ENV.DURATION || '45s';
+// Optional changing rate instead of a constant one, as "rate:duration" steps,
+// e.g. STAGES=80:15s,280:5s,280:35s ramps to each rate over its duration.
+// DURATION must then be the total, because the slow clients use it.
+const STAGES = (__ENV.STAGES || '')
+  .split(',')
+  .filter(Boolean)
+  .map((stage) => {
+    const [target, duration] = stage.split(':');
+    return { target: Number(target), duration };
+  });
 const SLOW_VUS = Number(__ENV.SLOW_VUS || 5);
 const SLOW_MS = Number(__ENV.SLOW_MS || 3000);
 // Versions that MUST each serve at least one request, e.g. "v1,v2" proves
@@ -37,15 +47,25 @@ for (const version of EXPECT_VERSIONS) {
 export const options = {
   thresholds,
   scenarios: {
-    steady: {
-      executor: 'constant-arrival-rate',
-      exec: 'steady',
-      rate: RATE,
-      timeUnit: '1s',
-      duration: DURATION,
-      preAllocatedVUs: 50,
-      maxVUs: 400,
-    },
+    steady: STAGES.length
+      ? {
+          executor: 'ramping-arrival-rate',
+          exec: 'steady',
+          startRate: STAGES[0].target,
+          timeUnit: '1s',
+          stages: STAGES,
+          preAllocatedVUs: 50,
+          maxVUs: 400,
+        }
+      : {
+          executor: 'constant-arrival-rate',
+          exec: 'steady',
+          rate: RATE,
+          timeUnit: '1s',
+          duration: DURATION,
+          preAllocatedVUs: 50,
+          maxVUs: 400,
+        },
     slow: {
       executor: 'constant-vus',
       exec: 'slow',

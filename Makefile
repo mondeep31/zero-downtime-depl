@@ -1,11 +1,12 @@
 TAG ?= v2
-SCENARIOS := good-deploy bad-deploy scale ratelimit kill-container naive-deploy
+SCENARIOS := good-deploy bad-deploy scale autoscale ratelimit kill-container naive-deploy
 
-.PHONY: help build up deploy down logs test $(addprefix test-,$(SCENARIOS))
+.PHONY: help build up deploy autoscale down logs test $(addprefix test-,$(SCENARIOS))
 
 help:
 	@echo "make up                 build v1 and start the stack (proxy on :$${PROXY_PORT:-8080})"
 	@echo "make deploy TAG=v2      build TAG and roll it out with zero downtime"
+	@echo "make autoscale          run the autoscaler (METRIC=rps|cpu TARGET=60, Ctrl-C stops it)"
 	@echo "make test               run every scenario"
 	@echo "make test-<scenario>    one of: $(SCENARIOS)"
 	@echo "make logs               follow logs"
@@ -20,6 +21,9 @@ up:
 
 deploy: build
 	APP_TAG=$(TAG) ./deploy/rollout.sh
+
+autoscale:
+	./deploy/autoscale.sh
 
 down:
 	cd deploy && docker compose down -v --remove-orphans

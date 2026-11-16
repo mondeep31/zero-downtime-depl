@@ -19,6 +19,9 @@ services:
       # Dashboard + API. The rollout script reads backend health from it.
       # Bound to localhost below; never expose it publicly.
       - --api.insecure=true
+      # Prometheus metrics on the dashboard port (/metrics). The autoscaler
+      # reads the request count from it.
+      - --metrics.prometheus=true
       # JSON access log: the tests count 5xx here, on the server side.
       - --accesslog=true
       - --accesslog.format=json
