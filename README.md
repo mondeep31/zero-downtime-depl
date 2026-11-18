@@ -163,11 +163,12 @@ logged. Raw output is kept in `results/`.
 ## Layout
 
 ```
-app/          demo service: http, worker and migrate modes in one binary
-deploy/       docker-compose.yml, rollout.sh and autoscale.sh
-loadtest/     k6 script
-scenarios/    one script per scenario, plus shared helpers in lib.sh
-.github/      CI that runs every scenario; an example deploy pipeline
+app/           demo service: http, worker and migrate modes in one binary
+deploy/        docker-compose.yml, rollout.sh and autoscale.sh
+loadtest/      k6 script
+scenarios/     one script per scenario, plus shared helpers in lib.sh
+.github/       CI that runs every scenario; an example deploy pipeline
+OPERATIONS.md  production loop still to build: public HTTPS, logs, metrics
 ```
 
 Endpoints of the demo service:
